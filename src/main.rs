@@ -260,7 +260,7 @@ fn save_people() {
         s += ",";
       }
       s.pop(); // Remove last ','
-      s += "]";
+      s += "\n]";
       let mut f = File::create(PEOPLE_FILE).expect("Unable to create file");
       f.write_all(s.as_bytes()).expect("Unable to write data");
     }
