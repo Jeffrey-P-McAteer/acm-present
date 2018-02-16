@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>ODU ACM Present</title>
+    <link rel="stylesheet" href="/style.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+/* Mobile tweaks */
+input {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  display: block;
+  margin: 0;
+  width: 100%; height: 40px;
+  line-height: 40px; font-size: 17px;
+  border: 1px solid #bbb;
+}
+    </style>
+  </head>
+  <body>
+    <h1>ACM Meeting New Person</h1>
+    <form action="/post-new" method="post">
+      <p>Name: <input name="name" type="text" placeholder="John Smith"></p>
+      <p>UIN: <input name="uin" type="number" placeholder="123456789"></p>
+      <p>Email: <input name="email" type="email" placeholder="jsmith0001@odu.edu"></p>
+      <p>Bluetooth MAC: <input name="mac" type="text" placeholder="12:ab:34:cd:56:ef"></p>
+      <input type="submit" value="Submit">
+      <br>
+      <p>
+        Hastily-googled instructions to find your Bluetooth MAC on <a href="https://www.technipages.com/android-find-bluetooth-address" target="_blank">android</a> as well as <a href="https://www.tekrevue.com/tip/how-to-find-mac-address-iphone-ipad/" target="_blank">shiny android</a>.
+      </p>
+    </form>
+  </body>
+</html>

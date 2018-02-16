@@ -12,6 +12,10 @@ extern crate lazy_static;
 
 use serde_json::Error;
 
+extern crate url;
+use url::{Url, ParseError};
+
+use std::collections::HashMap;
 use std::process::{Command,Stdio};
 use std::fs::File;
 use std::io::prelude::*;
@@ -19,34 +23,9 @@ use std::{thread, time};
 use std::time::Duration;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::io::Read;
+use std::io::{Read,Write};
 use std::path::{Path};
 use std::fs;
-
-fn ping_bt_mac(mac: &String) -> bool { // True if ping went through (device is ping-able)
-  let raw_stdout = Command::new("sudo")
-            .args(&["l2ping", "-c", "2", "-t", "1", mac.as_str()])
-            .output()
-            .unwrap()
-            .stdout;
-  let stdout_str = String::from_utf8(raw_stdout).unwrap();
-  //println!("{}", stdout_str);
-  return stdout_str.contains("bytes from");
-}
-
-fn person_existed_since(p: &Person, oldest_epoch_s: u64) -> bool {
-  match ALL_SCANS.lock() {
-    Ok(all_scans_locked) => {
-      for scan_result in &all_scans_locked[..] {
-        if scan_result.mac == p.mac && scan_result.present && scan_result.epoch_s > oldest_epoch_s {
-          return true;
-        }
-      }
-    }
-    _ => { }
-  }
-  return false;
-}
 
 #[derive(Serialize, Deserialize, Clone)]
 struct Person {
@@ -87,6 +66,7 @@ impl ScanReceipt {
 const SCAN_HIST_COUNT: usize = 5000;
 const MINUTES_OK_TIME: u64 = 2; // Number of minutes to search for valid people
 const LISTEN_ADDR: &'static str = "0.0.0.0:8080";
+const PEOPLE_FILE: &'static str = "./present_map.json";
 
 lazy_static! { // Global but complex data
   static ref ALL_PEOPLE: Mutex<Vec<Person>> = Mutex::new(vec![]);
@@ -94,7 +74,7 @@ lazy_static! { // Global but complex data
 }
 
 fn main() { // Approx 100m
-  let mut f = File::open("present_map.json").expect("file not found");
+  let mut f = File::open(PEOPLE_FILE).expect("file not found");
   let mut contents = String::new();
   f.read_to_string(&mut contents).expect("something went wrong reading the file");
   let people: Vec<Person> = serde_json::from_str(contents.as_str()).unwrap();
@@ -131,7 +111,7 @@ fn ngrok_thread() {
     "curl --silent http://127.0.0.1:4040/api/tunnels | jq '.\"tunnels\"[0].\"public_url\"' | tr -d '\"' | sed 's/tcp:\\/\\///g'"
   ]));
   println!("Ngrok URL = {}", url);
-  set_qr_code(&url);
+  set_qr_code(&format!("{}/mobile.html", url));
 }
 
 fn scanning_thread() {
@@ -188,9 +168,56 @@ fn handle_request(request: Request) {
     "/roster.csv" => {
       serve_csv(request);
     }
+    "/post-new" => {
+      gobble_new_person(request);
+    }
     _ => {
       serve_file(request);
     }
+  }
+}
+
+fn ping_bt_mac(mac: &String) -> bool { // True if ping went through (device is ping-able)
+  let raw_stdout = Command::new("sudo")
+            .args(&["l2ping", "-c", "2", "-t", "1", mac.as_str()])
+            .output()
+            .unwrap()
+            .stdout;
+  let stdout_str = String::from_utf8(raw_stdout).unwrap();
+  //println!("{}", stdout_str);
+  return stdout_str.contains("bytes from");
+}
+
+fn person_existed_since(p: &Person, oldest_epoch_s: u64) -> bool {
+  match ALL_SCANS.lock() {
+    Ok(all_scans_locked) => {
+      for scan_result in &all_scans_locked[..] {
+        if scan_result.mac == p.mac && scan_result.present && scan_result.epoch_s > oldest_epoch_s {
+          return true;
+        }
+      }
+    }
+    _ => { }
+  }
+  return false;
+}
+
+fn save_people() {
+  match ALL_PEOPLE.lock() {
+    Ok(mut all_people_locked) => {
+      let mut s = String::new();
+      s += "[";
+      for person in &all_people_locked[..] {
+        s += "\n";
+        s += serde_json::to_string(&person).unwrap().as_str();
+        s += ",";
+      }
+      s.pop(); // Remove last ','
+      s += "]";
+      let mut f = File::create(PEOPLE_FILE).expect("Unable to create file");
+      f.write_all(s.as_bytes()).expect("Unable to write data");
+    }
+    _ => { }
   }
 }
 
@@ -203,6 +230,38 @@ fn set_qr_code(val: &String) { // sets value in ./www/qr.png
       .args(&["-o", "./www/qr.png", "-s", "10", val.as_str()])
       .output()
       .unwrap();
+}
+
+fn gobble_new_person(mut request: Request) {
+  let mut content = String::new();
+  request.as_reader().read_to_string(&mut content).unwrap();
+  
+  let double_iterator = url::form_urlencoded::parse(&content.into_bytes());
+  let mut p = Person{
+    name:  String::new(),
+    uin:   String::new(),
+    email: String::new(),
+    mac:   String::new(),
+  };
+  for (key, val) in double_iterator {
+    match key.as_str() {
+      "name" => p.name = val,
+      "uin" => p.uin = val,
+      "email" => p.email = val,
+      "mac" => p.mac = val,
+      _ => { }
+    }
+  }
+  
+  match ALL_PEOPLE.lock() {
+    Ok(mut all_people_locked) => {
+      all_people_locked.push(p.clone());
+    }
+    _ => { }
+  }
+  save_people();
+  
+  // And, y'know, tell them thanks
 }
 
 fn serve_status(request: Request) {
