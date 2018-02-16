@@ -71,6 +71,7 @@ const PEOPLE_FILE: &'static str = "./present_map.json";
 lazy_static! { // Global but complex data
   static ref ALL_PEOPLE: Mutex<Vec<Person>> = Mutex::new(vec![]);
   static ref ALL_SCANS: Mutex<Vec<ScanReceipt>> = Mutex::new(vec![]);
+  static ref ALL_UNKNOWN_SCANS: Mutex<Vec<ScanReceipt>> = Mutex::new(vec![]);
 }
 
 fn main() { // Approx 100m
@@ -89,11 +90,13 @@ fn main() { // Approx 100m
   }
   
   let scanning_child = thread::spawn(|| { scanning_thread(); });
+  let unknown_scanning_child = thread::spawn(|| { unknown_scanning_thread(); });
   let webserver_child = thread::spawn(|| { webserver_thread();  });
   let spawn_ngrok = thread::spawn(|| { ngrok_thread(); });
   
   { // Exit when everyone else is finished
     scanning_child.join().unwrap();
+    unknown_scanning_child.join().unwrap();
     webserver_child.join().unwrap();
     spawn_ngrok.join().unwrap();
   }
@@ -137,6 +140,50 @@ fn scanning_thread() {
     
     for thread in all_people_scan_threads {
       thread.join().unwrap();
+    }
+  }
+}
+
+fn unknown_scanning_thread() {
+  // Scans everything everything.
+  loop {
+    // Scan
+    let mut this_iter: Vec<ScanReceipt> = vec![];
+    let epoch_s = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time.exe has failed").as_secs();
+    
+    let raw_stdout = Command::new("sudo")
+            .args(&["timeout", "-s", "SIGINT", "6s", "hcitool", "lescan", "--duplicates"])
+            .output()
+            .unwrap()
+            .stdout;
+    let stdout_str = String::from_utf8(raw_stdout).unwrap();
+    
+    for line in stdout_str.lines() {
+      let mac_addr = line.split(" ").next().unwrap();
+      if ! mac_addr.contains(':') { continue; }
+      
+      this_iter.push(ScanReceipt {
+        mac: mac_addr.to_string().trim().to_string(),
+        epoch_s: epoch_s,
+        present: true,
+      });
+    }
+    
+    // Push results
+    match ALL_UNKNOWN_SCANS.lock() {
+      Ok(mut all_unknown_lock) => {
+        for result in this_iter {
+          let mut we_know = false;
+          for known in all_unknown_lock.iter() {
+            if known.mac == result.mac { we_know = true; break; }
+          }
+          if !we_know {
+            all_unknown_lock.push(result);
+            all_unknown_lock.truncate(200); // More conservative
+          }
+        }
+      }
+      _ => { }
     }
   }
 }
@@ -287,6 +334,20 @@ fn serve_status(request: Request) {
         }
       },
       _ => { }
+  }
+  response_str += "</ul><ul id=\"unknownMACs\">";
+  // Dump all unknown BT MACs we see
+  match ALL_UNKNOWN_SCANS.lock() {
+    Ok(all_unknowns_locked) => {
+      let now_epoch_s = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time.exe has failed").as_secs();
+      for unknown_device in all_unknowns_locked.iter() {
+        if now_epoch_s - unknown_device.epoch_s > 60 { continue; } // Ignore people we haven't seen in 60s
+        response_str.push_str(
+          &format!("<li class=\"unknown\">{}</li>", unknown_device.mac)
+        );
+      }
+    }
+    _ => { response_str += "ERR"; }
   }
   response_str += "</ul></body></html>";
   let response = Response::new(StatusCode::from(200), headers, response_str.as_bytes(), Some(response_str.len()), None);
