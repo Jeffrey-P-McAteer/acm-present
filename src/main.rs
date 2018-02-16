@@ -204,7 +204,7 @@ fn person_existed_since(p: &Person, oldest_epoch_s: u64) -> bool {
 
 fn save_people() {
   match ALL_PEOPLE.lock() {
-    Ok(mut all_people_locked) => {
+    Ok(all_people_locked) => {
       let mut s = String::new();
       s += "[";
       for person in &all_people_locked[..] {
@@ -261,7 +261,7 @@ fn gobble_new_person(mut request: Request) {
   }
   save_people();
   
-  // And, y'know, tell them thanks
+  serve_404(request);
 }
 
 fn serve_status(request: Request) {
