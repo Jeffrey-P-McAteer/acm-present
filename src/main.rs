@@ -64,7 +64,7 @@ impl ScanReceipt {
 
 // Unchanging global data
 const SCAN_HIST_COUNT: usize = 5000;
-const MINUTES_OK_TIME: u64 = 2; // Number of minutes to search for valid people
+const SECS_OK_TIME: u64 = 2 * 60; // Number of minutes to search for valid people
 const LISTEN_ADDR: &'static str = "0.0.0.0:8080";
 const PEOPLE_FILE: &'static str = "./present_map.json";
 
@@ -151,8 +151,8 @@ fn unknown_scanning_thread() {
     let mut this_iter: Vec<ScanReceipt> = vec![];
     let epoch_s = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time.exe has failed").as_secs();
     
-    let raw_stdout = Command::new("sudo")
-            .args(&["timeout", "-s", "SIGINT", "6s", "hcitool", "lescan", "--duplicates"])
+    let raw_stdout = Command::new("sudo") // Runs ~ every 3 seconds
+            .args(&["timeout", "-s", "SIGINT", "3s", "hcitool", "lescan", "--duplicates"])
             .output()
             .unwrap()
             .stdout;
@@ -246,6 +246,16 @@ fn person_existed_since(p: &Person, oldest_epoch_s: u64) -> bool {
     }
     _ => { }
   }
+  match ALL_UNKNOWN_SCANS.lock() {
+    Ok(all_unknown_lock) => {
+      for scan_result in &all_unknown_lock[..] {
+        if scan_result.mac == p.mac && scan_result.present && scan_result.epoch_s > oldest_epoch_s {
+          return true;
+        }
+      }
+    }
+    _ => { }
+  }
   return false;
 }
 
@@ -292,7 +302,20 @@ fn gobble_new_person(mut request: Request) {
   };
   for (key, val) in double_iterator {
     match key.as_str() {
-      "name" => p.name = val,
+      "name" => {
+        p.name = {
+          let mut sanitized_name = String::new();
+          for c in val.chars() {
+            match c {
+              'a' ... 'z' | 'A' ... 'Z' | '1' ... '9' | '0' | ' ' | '-' | '_' => {
+                sanitized_name.push(c)
+              },
+              _ => {}
+            }
+          }
+          sanitized_name
+        }
+      },
       "uin" => p.uin = val,
       "email" => p.email = val,
       "mac" => p.mac = val,
@@ -322,7 +345,7 @@ fn serve_status(request: Request) {
                         .duration_since(UNIX_EPOCH)
                         .expect("Time.exe has failed")
                         .as_secs() - 
-                        (MINUTES_OK_TIME * 60); // MINUTES_OK_TIME minutes ago
+                        (SECS_OK_TIME); // SECS_OK_TIME secs ago
   
   match ALL_PEOPLE.lock() {
       Ok(all_people_locked) => {
@@ -341,7 +364,7 @@ fn serve_status(request: Request) {
     Ok(all_unknowns_locked) => {
       let now_epoch_s = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time.exe has failed").as_secs();
       for unknown_device in all_unknowns_locked.iter() {
-        if now_epoch_s - unknown_device.epoch_s > 60 { continue; } // Ignore people we haven't seen in 60s
+        if now_epoch_s - unknown_device.epoch_s > SECS_OK_TIME { continue; } // Ignore people we haven't seen in SECS_OK_TIME
         response_str.push_str(
           &format!("<li class=\"unknown\">{}</li>", unknown_device.mac)
         );
@@ -363,7 +386,7 @@ fn serve_csv(request: Request) {
                         .duration_since(UNIX_EPOCH)
                         .expect("Time.exe has failed")
                         .as_secs() - 
-                        (MINUTES_OK_TIME * 60); // MINUTES_OK_TIME minutes ago
+                        (SECS_OK_TIME); // SECS_OK_TIME secs ago
   
   match ALL_PEOPLE.lock() {
       Ok(all_people_locked) => {
