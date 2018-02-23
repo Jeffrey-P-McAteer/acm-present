@@ -10,16 +10,16 @@ extern crate serde_derive;
 #[macro_use]
 extern crate lazy_static;
 
-use serde_json::Error;
+//use serde_json::Error;
 
 extern crate url;
-use url::{Url, ParseError};
+//use url::{Url, ParseError};
 
-use std::collections::HashMap;
+//use std::collections::HashMap;
 use std::process::{Command,Stdio};
 use std::fs::File;
-use std::io::prelude::*;
-use std::{thread, time};
+//use std::io::prelude::*;
+use std::thread;
 use std::time::Duration;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -63,7 +63,7 @@ impl ScanReceipt {
 }
 
 // Unchanging global data
-const SCAN_HIST_COUNT: usize = 5000;
+const SCAN_HIST_COUNT: usize = 6000;
 const SECS_OK_TIME: u64 = 2 * 60; // Number of minutes to search for valid people
 const LISTEN_ADDR: &'static str = "0.0.0.0:8080";
 const PEOPLE_FILE: &'static str = "./present_map.json";
@@ -89,6 +89,13 @@ fn main() { // Approx 100m
     _ => return
   }
   
+  { // Get sudo pw
+    Command::new("sudo") // Runs ~ every 3 seconds
+        .args(&["printf", ""])
+        .output()
+        .unwrap();
+  }
+  
   let scanning_child = thread::spawn(|| { scanning_thread(); });
   let unknown_scanning_child = thread::spawn(|| { unknown_scanning_thread(); });
   let webserver_child = thread::spawn(|| { webserver_thread();  });
@@ -110,9 +117,15 @@ fn ngrok_thread() {
     .stderr(Stdio::null())
     .spawn().unwrap();
   thread::sleep(Duration::from_millis(400));
-  let url = cmd_out(Command::new("sh").args(&["-c",
+  let mut url = cmd_out(Command::new("sh").args(&["-c",
     "curl --silent http://127.0.0.1:4040/api/tunnels | jq '.\"tunnels\"[0].\"public_url\"' | tr -d '\"' | sed 's/tcp:\\/\\///g'"
   ]));
+  while format!("{}", url) == "null" {
+    thread::sleep(Duration::from_millis(200));
+    url = cmd_out(Command::new("sh").args(&["-c",
+      "curl --silent http://127.0.0.1:4040/api/tunnels | jq '.\"tunnels\"[0].\"public_url\"' | tr -d '\"' | sed 's/tcp:\\/\\///g'"
+    ]));
+  }
   println!("Ngrok URL = {}", url);
   set_qr_code(&format!("{}/mobile.html", url));
 }
