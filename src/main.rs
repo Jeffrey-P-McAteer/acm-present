@@ -10,15 +10,10 @@ extern crate serde_derive;
 #[macro_use]
 extern crate lazy_static;
 
-//use serde_json::Error;
-
 extern crate url;
-//use url::{Url, ParseError};
 
-//use std::collections::HashMap;
 use std::process::{Command,Stdio};
 use std::fs::File;
-//use std::io::prelude::*;
 use std::thread;
 use std::time::Duration;
 use std::sync::Mutex;
